@@ -1,6 +1,6 @@
 /**
  * Copyright (C) 2006-2009 Dustin Sallings
- * Copyright (C) 2009-2011 Couchbase, Inc.
+ * Copyright (C) 2009-2012 Couchbase, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -41,6 +41,7 @@ import net.spy.memcached.ops.KeyedOperation;
 import net.spy.memcached.ops.Mutator;
 import net.spy.memcached.ops.MutatorOperation;
 import net.spy.memcached.ops.NoopOperation;
+import net.spy.memcached.ops.ObserveOperation;
 import net.spy.memcached.ops.Operation;
 import net.spy.memcached.ops.OperationCallback;
 import net.spy.memcached.ops.SASLAuthOperation;
@@ -50,6 +51,7 @@ import net.spy.memcached.ops.StatsOperation;
 import net.spy.memcached.ops.StoreOperation;
 import net.spy.memcached.ops.StoreType;
 import net.spy.memcached.ops.TapOperation;
+import net.spy.memcached.ops.UnlockOperation;
 import net.spy.memcached.ops.VersionOperation;
 import net.spy.memcached.tapmessage.RequestMessage;
 import net.spy.memcached.tapmessage.TapOpcode;
@@ -71,10 +73,33 @@ public interface OperationFactory {
    * Create a deletion operation.
    *
    * @param key the key to delete
-   * @param operationCallback the status callback
+   * @param callback the status callback
    * @return the new DeleteOperation
    */
-  DeleteOperation delete(String key, OperationCallback operationCallback);
+  DeleteOperation delete(String key, DeleteOperation.Callback callback);
+
+  /**
+   * Create a Unlock operation.
+   *
+   * @param key the key to unlock
+   * @param casId the value of CAS
+   * @param operationCallback the status callback
+   * @return the new UnlockOperation
+   */
+  UnlockOperation unlock(String key, long casId,
+          OperationCallback operationCallback);
+
+  /**
+   * Create an Observe operation.
+   *
+   * @param key the key to observe
+   * @param casId the value of CAS
+   * @param index the VBucket index of key
+   * @param operationCallback the status callback
+   * @return the new ObserveOperation
+   */
+  ObserveOperation observe(String key, long casId, int index,
+          ObserveOperation.Callback operationCallback);
 
   /**
    * Create a flush operation.
@@ -136,6 +161,15 @@ public interface OperationFactory {
   GetOperation get(Collection<String> keys, GetOperation.Callback cb);
 
   /**
+   * Get a new KeyStatsOperation.
+   *
+   * @param key the key to get stats for
+   * @param cb the stats callback
+   * @return the new StatsOperation
+   */
+  StatsOperation keyStats(String key, StatsOperation.Callback cb);
+
+  /**
    * Create a mutator operation.
    *
    * @param m the mutator type
@@ -170,7 +204,7 @@ public interface OperationFactory {
    * @return the new store operation
    */
   StoreOperation store(StoreType storeType, String key, int flags, int exp,
-      byte[] data, OperationCallback cb);
+      byte[] data, StoreOperation.Callback cb);
 
   /**
    * Resets a keys expiration time.
@@ -207,7 +241,7 @@ public interface OperationFactory {
    * @return the new store operation
    */
   CASOperation cas(StoreType t, String key, long casId, int flags, int exp,
-      byte[] data, OperationCallback cb);
+      byte[] data, StoreOperation.Callback cb);
 
   /**
    * Create a new version operation.

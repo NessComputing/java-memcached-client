@@ -20,50 +20,45 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALING
  * IN THE SOFTWARE.
  */
-
-package net.spy.memcached.protocol.binary;
-
-import java.util.UUID;
-
-import net.spy.memcached.ops.OperationCallback;
-import net.spy.memcached.ops.OperationState;
-import net.spy.memcached.ops.TapOperation;
-import net.spy.memcached.tapmessage.RequestMessage;
-import net.spy.memcached.tapmessage.TapRequestFlag;
+package net.spy.memcached;
 
 /**
- * Implementation of a custom tap operation.
+ * PersistTo codes for a Observe operation.
  */
-public class TapCustomOperationImpl extends TapOperationImpl implements
-    TapOperation {
-  private final String id;
-  private final RequestMessage message;
+public enum PersistTo {
 
-  TapCustomOperationImpl(String id, RequestMessage message,
-      OperationCallback cb) {
-    super(cb);
-    this.id = id;
-    this.message = message;
+  /**
+   * Don't wait for persistence on any nodes.
+   */
+  ZERO(0),
+  /**
+   * Persist to the Master. ONE implies MASTER.
+   */
+  MASTER(1),
+  /**
+   * ONE implies MASTER.
+   */
+  ONE(1),
+  /**
+   * Persist to at least two nodes including Master.
+   */
+  TWO(2),
+  /**
+   * Persist to at least three nodes including Master.
+   */
+  THREE(3),
+  /**
+   * Persist to at least four nodes including Master.
+   */
+  FOUR(4);
+
+  private final int value;
+
+  PersistTo(int val) {
+    value = val;
   }
 
-  @Override
-  public void initialize() {
-    message.setFlags(TapRequestFlag.FIX_BYTEORDER);
-    if (id != null) {
-      message.setName(id);
-    } else {
-      message.setName(UUID.randomUUID().toString());
-    }
-    setBuffer(message.getBytes());
-  }
-
-  @Override
-  public void streamClosed(OperationState state) {
-    transitionState(state);
-  }
-
-  @Override
-  public String toString() {
-    return "Cmd: tap custom";
+  public int getValue() {
+    return value;
   }
 }

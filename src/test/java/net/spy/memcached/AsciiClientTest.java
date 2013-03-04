@@ -25,10 +25,13 @@ package net.spy.memcached;
 
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.concurrent.ExecutionException;
+import net.spy.memcached.internal.OperationFuture;
 
 import net.spy.memcached.ops.OperationCallback;
 import net.spy.memcached.ops.OperationStatus;
 import net.spy.memcached.protocol.ascii.ExtensibleOperationImpl;
+import org.junit.Test;
 
 /**
  * This test assumes a server is running on the host specified in the
@@ -61,8 +64,28 @@ public class AsciiClientTest extends ProtocolBaseCase {
   }
 
   @Override
+  @Test(expected=UnsupportedOperationException.class)
+  public void testSetReturnsCAS() {
+  }
+  @Override
   protected String getExpectedVersionSource() {
     return String.valueOf(new InetSocketAddress(TestConfig.IPV4_ADDR,
         TestConfig.PORT_NUMBER));
   }
+
+  public void testAsyncCASResponse() throws InterruptedException,
+    ExecutionException {
+    String key = "testAsyncCASResponse";
+    client.set(key, 300, key + "0");
+    CASValue<Object> getsRes = client.gets(key);
+    OperationFuture<CASResponse> casRes = client.asyncCAS(key, getsRes.getCas(),
+      key + "1");
+    try {
+      casRes.getCas();
+      fail("Expected an UnsupportedOperationException");
+    } catch (UnsupportedOperationException ex) {
+      //expected
+    }
+  }
+
 }

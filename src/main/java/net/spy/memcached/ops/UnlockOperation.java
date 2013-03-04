@@ -1,5 +1,4 @@
 /**
- * Copyright (C) 2006-2009 Dustin Sallings
  * Copyright (C) 2009-2012 Couchbase, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -21,49 +20,11 @@
  * IN THE SOFTWARE.
  */
 
-package net.spy.memcached.protocol.binary;
-
-import java.util.UUID;
-
-import net.spy.memcached.ops.OperationCallback;
-import net.spy.memcached.ops.OperationState;
-import net.spy.memcached.ops.TapOperation;
-import net.spy.memcached.tapmessage.RequestMessage;
-import net.spy.memcached.tapmessage.TapRequestFlag;
+package net.spy.memcached.ops;
 
 /**
- * Implementation of a custom tap operation.
+ * Unlock operation.
  */
-public class TapCustomOperationImpl extends TapOperationImpl implements
-    TapOperation {
-  private final String id;
-  private final RequestMessage message;
-
-  TapCustomOperationImpl(String id, RequestMessage message,
-      OperationCallback cb) {
-    super(cb);
-    this.id = id;
-    this.message = message;
-  }
-
-  @Override
-  public void initialize() {
-    message.setFlags(TapRequestFlag.FIX_BYTEORDER);
-    if (id != null) {
-      message.setName(id);
-    } else {
-      message.setName(UUID.randomUUID().toString());
-    }
-    setBuffer(message.getBytes());
-  }
-
-  @Override
-  public void streamClosed(OperationState state) {
-    transitionState(state);
-  }
-
-  @Override
-  public String toString() {
-    return "Cmd: tap custom";
-  }
+public interface UnlockOperation extends KeyedOperation {
+  // nothing in particular.
 }

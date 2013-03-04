@@ -1,6 +1,5 @@
 /**
  * Copyright (C) 2006-2009 Dustin Sallings
- * Copyright (C) 2009-2012 Couchbase, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,47 +22,44 @@
 
 package net.spy.memcached.protocol.binary;
 
-import java.util.UUID;
+import java.io.IOException;
 
-import net.spy.memcached.ops.OperationCallback;
 import net.spy.memcached.ops.OperationState;
-import net.spy.memcached.ops.TapOperation;
-import net.spy.memcached.tapmessage.RequestMessage;
-import net.spy.memcached.tapmessage.TapRequestFlag;
+import net.spy.memcached.ops.OperationStatus;
+import net.spy.memcached.ops.StatsOperation;
 
 /**
- * Implementation of a custom tap operation.
+ * A StatsOperationImpl.
  */
-public class TapCustomOperationImpl extends TapOperationImpl implements
-    TapOperation {
-  private final String id;
-  private final RequestMessage message;
+public class KeyStatsOperationImpl extends SingleKeyOperationImpl
+  implements StatsOperation {
 
-  TapCustomOperationImpl(String id, RequestMessage message,
-      OperationCallback cb) {
-    super(cb);
-    this.id = id;
-    this.message = message;
+  private static final byte CMD = 0x10;
+
+  public KeyStatsOperationImpl(String key, StatsOperation.Callback c) {
+    super(CMD, generateOpaque(), key, c);
   }
 
   @Override
   public void initialize() {
-    message.setFlags(TapRequestFlag.FIX_BYTEORDER);
-    if (id != null) {
-      message.setName(id);
+    String keyval = "key " + key + " " + getVBucket(key);
+    prepareBuffer(keyval, 0, EMPTY_BYTES);
+  }
+
+  @Override
+  protected void finishedPayload(byte[] pl) throws IOException {
+    if (keyLen > 0) {
+      final byte[] keyBytes = new byte[keyLen];
+      final byte[] data = new byte[pl.length - keyLen];
+      System.arraycopy(pl, 0, keyBytes, 0, keyLen);
+      System.arraycopy(pl, keyLen, data, 0, pl.length - keyLen);
+      Callback cb = (Callback) getCallback();
+      cb.gotStat(new String(keyBytes, "UTF-8"), new String(data, "UTF-8"));
     } else {
-      message.setName(UUID.randomUUID().toString());
+      OperationStatus status = getStatusForErrorCode(errorCode, pl);
+      getCallback().receivedStatus(status);
+      transitionState(OperationState.COMPLETE);
     }
-    setBuffer(message.getBytes());
-  }
-
-  @Override
-  public void streamClosed(OperationState state) {
-    transitionState(state);
-  }
-
-  @Override
-  public String toString() {
-    return "Cmd: tap custom";
+    resetInput();
   }
 }

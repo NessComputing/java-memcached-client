@@ -54,6 +54,8 @@ public abstract class OperationFactoryTestBase extends MockObjectTestCase {
   public static final String TEST_KEY = "someKey";
   protected OperationFactory ofact = null;
   protected OperationCallback genericCallback;
+  protected StoreOperation.Callback storeCallback;
+  protected DeleteOperation.Callback deleteCallback;
   private byte[] testData;
 
   @Override
@@ -69,7 +71,30 @@ public abstract class OperationFactoryTestBase extends MockObjectTestCase {
         fail("Unexpected status:  " + status);
       }
     };
+    storeCallback = new StoreOperation.Callback() {
+      public void complete() {
+        fail("Unexpected invocation");
+      }
 
+      public void gotData(String key, long cas) {
+      }
+
+      public void receivedStatus(OperationStatus status) {
+        fail("Unexpected status:  " + status);
+      }
+    };
+    deleteCallback = new DeleteOperation.Callback() {
+      public void complete() {
+        fail("Unexpected invocation");
+      }
+
+      public void gotData(long cas) {
+      }
+
+      public void receivedStatus(OperationStatus status) {
+        fail("Unexpected status:  " + status);
+      }
+    };
     testData = new byte[64];
     new Random().nextBytes(testData);
   }
@@ -80,16 +105,16 @@ public abstract class OperationFactoryTestBase extends MockObjectTestCase {
   protected abstract OperationFactory getOperationFactory();
 
   public void testDeleteOperationCloning() {
-    DeleteOperation op = ofact.delete(TEST_KEY, genericCallback);
+    DeleteOperation op = ofact.delete(TEST_KEY, deleteCallback);
 
     DeleteOperation op2 = cloneOne(DeleteOperation.class, op);
     assertEquals(TEST_KEY, op2.getKeys().iterator().next());
-    assertCallback(op2);
+    assertDeleteCallback(op2);
   }
 
   public void testCASOperationCloning() {
     CASOperation op = ofact.cas(StoreType.set, "someKey", 727582, 8174, 7175,
-        testData, genericCallback);
+        testData, storeCallback);
 
     CASOperation op2 = cloneOne(CASOperation.class, op);
     assertKey(op2);
@@ -97,7 +122,7 @@ public abstract class OperationFactoryTestBase extends MockObjectTestCase {
     assertEquals(8174, op2.getFlags());
     assertEquals(7175, op2.getExpiration());
     assertBytes(op2.getData());
-    assertCallback(op2);
+    assertStoreCallback(op2);
   }
 
   public void testMutatorOperationIncrCloning() {
@@ -136,28 +161,28 @@ public abstract class OperationFactoryTestBase extends MockObjectTestCase {
     int exp = 823862;
     int flags = 7735;
     StoreOperation op = ofact.store(StoreType.add, TEST_KEY, flags, exp,
-        testData, genericCallback);
+        testData, storeCallback);
 
     StoreOperation op2 = cloneOne(StoreOperation.class, op);
     assertKey(op2);
     assertEquals(exp, op2.getExpiration());
     assertEquals(flags, op2.getFlags());
     assertSame(StoreType.add, op2.getStoreType());
-    assertCallback(op2);
+    assertStoreCallback(op2);
   }
 
   public void testStoreOperationSetCloning() {
     int exp = 823862;
     int flags = 7735;
     StoreOperation op = ofact.store(StoreType.set, TEST_KEY, flags, exp,
-        testData, genericCallback);
+        testData, storeCallback);
 
     StoreOperation op2 = cloneOne(StoreOperation.class, op);
     assertKey(op2);
     assertEquals(exp, op2.getExpiration());
     assertEquals(flags, op2.getFlags());
     assertSame(StoreType.set, op2.getStoreType());
-    assertCallback(op2);
+    assertStoreCallback(op2);
   }
 
   public void testConcatenationOperationAppendCloning() {
@@ -256,6 +281,14 @@ public abstract class OperationFactoryTestBase extends MockObjectTestCase {
 
   protected void assertCallback(Operation op) {
     assertSame(genericCallback, op.getCallback());
+  }
+
+  protected void assertStoreCallback(Operation op) {
+    assertSame(storeCallback, op.getCallback());
+  }
+
+  protected void assertDeleteCallback(Operation op) {
+    assertSame(deleteCallback, op.getCallback());
   }
 
   private void assertBytes(byte[] bytes) {

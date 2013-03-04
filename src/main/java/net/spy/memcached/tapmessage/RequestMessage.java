@@ -23,8 +23,10 @@
 package net.spy.memcached.tapmessage;
 
 import java.nio.ByteBuffer;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -34,11 +36,13 @@ import java.util.UUID;
 public class RequestMessage extends BaseMessage{
   private boolean hasBackfill;
   private boolean hasVBucketList;
+  private boolean hasVBucketCheckpoints;
   private boolean hasFlags;
   private List<TapRequestFlag> flagList;
   private short[] vblist;
   private String name;
   private long backfilldate;
+  private Map<Short, Long> vBucketCheckpoints;
 
   /**
    * Create a tap request message. These messages are used to start tap streams.
@@ -46,6 +50,7 @@ public class RequestMessage extends BaseMessage{
   public RequestMessage() {
     flagList = new LinkedList<TapRequestFlag>();
     vblist = new short[0];
+    vBucketCheckpoints = new HashMap<Short, Long>();
     name = UUID.randomUUID().toString();
     backfilldate = -1;
     totalbody += name.length();
@@ -72,6 +77,10 @@ public class RequestMessage extends BaseMessage{
       if (f.equals(TapRequestFlag.LIST_VBUCKETS)
         || f.equals(TapRequestFlag.TAKEOVER_VBUCKETS)) {
         hasVBucketList = true;
+        totalbody += 2;
+      }
+      if (f.equals(TapRequestFlag.CHECKPOINT)) {
+        hasVBucketCheckpoints = true;
         totalbody += 2;
       }
       flagList.add(f);
@@ -110,6 +119,18 @@ public class RequestMessage extends BaseMessage{
   }
 
   /**
+   * Sets a map of vbucket checkpoints.
+   *
+   * @param vbchkpnts - A map of vbucket checkpoint identifiers
+   */
+  public void setvBucketCheckpoints(Map<Short, Long> vbchkpnts) {
+    int oldSize = (vBucketCheckpoints.size()) * 10;
+    int newSize = (vbchkpnts.size()) * 10;
+    totalbody += newSize - oldSize;
+    vBucketCheckpoints = vbchkpnts;
+  }
+
+  /**
    * Sets a name for this tap stream. If the tap stream fails this name can be
    * used to try to restart the tap stream from where it last left off.
    *
@@ -143,7 +164,7 @@ public class RequestMessage extends BaseMessage{
     if (hasFlags) {
       int flag = 0;
       for (int i = 0; i < flagList.size(); i++) {
-        flag |= flagList.get(i).getFlag();
+        flag |= flagList.get(i).getFlags();
       }
       bb.putInt(flag);
     }
@@ -155,6 +176,13 @@ public class RequestMessage extends BaseMessage{
       bb.putShort((short) vblist.length);
       for (int i = 0; i < vblist.length; i++) {
         bb.putShort(vblist[i]);
+      }
+    }
+    if (hasVBucketCheckpoints) {
+      bb.putShort((short)vBucketCheckpoints.size());
+      for (Short vBucket : vBucketCheckpoints.keySet()) {
+        bb.putShort(vBucket);
+        bb.putLong(vBucketCheckpoints.get(vBucket));
       }
     }
 

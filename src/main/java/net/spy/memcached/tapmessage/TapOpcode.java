@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2009-2011 Couchbase, Inc.
+ * Copyright (C) 2009-2012 Couchbase, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -71,7 +71,17 @@ public enum TapOpcode {
    * Defines a vBucket set message to set the state of a vBucket in the
    * consumer.
    */
-  VBUCKETSET((byte) 0x45);
+  VBUCKETSET((byte) 0x45),
+
+  /**
+   * Defines the start of a checkpoint.
+   */
+  START_CHECKPOINT((byte) 0x46),
+
+  /**
+   * Defines the end of a checkpoint.
+   */
+  END_CHECKPOINT((byte) 0x47);
 
   /**
    * The opcode value.
@@ -110,6 +120,10 @@ public enum TapOpcode {
       return TapOpcode.SASLLIST;
     } else if (b == TapOpcode.VBUCKETSET.opcode) {
       return TapOpcode.VBUCKETSET;
+    } else if (b == TapOpcode.START_CHECKPOINT.opcode) {
+      return TapOpcode.START_CHECKPOINT;
+    } else if (b == TapOpcode.END_CHECKPOINT.opcode) {
+      return TapOpcode.END_CHECKPOINT;
     } else {
       return null;
     }

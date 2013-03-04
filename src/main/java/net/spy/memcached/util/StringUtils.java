@@ -23,6 +23,7 @@
 package net.spy.memcached.util;
 
 import java.util.Collection;
+import java.util.Iterator;
 
 import net.spy.memcached.KeyUtil;
 import net.spy.memcached.MemcachedClientIF;
@@ -38,9 +39,13 @@ public final class StringUtils {
 
   public static String join(Collection<String> keys, String delimiter) {
     StringBuilder sb = new StringBuilder();
-    for (String key : keys) {
-      sb.append(key);
-      sb.append(delimiter);
+    if (!keys.isEmpty()) {
+      Iterator<String> itr = keys.iterator();
+      sb.append(itr.next());
+      while (itr.hasNext()) {
+        sb.append(delimiter);
+        sb.append(itr.next());
+      }
     }
     return sb.toString();
   }
@@ -58,7 +63,7 @@ public final class StringUtils {
     }
   }
 
-  public static void validateKey(String key) {
+  public static void validateKey(String key, boolean binary) {
     byte[] keyBytes = KeyUtil.getKeyBytes(key);
     if (keyBytes.length > MemcachedClientIF.MAX_KEY_LENGTH) {
       throw new IllegalArgumentException("Key is too long (maxlen = "
@@ -68,11 +73,13 @@ public final class StringUtils {
       throw new IllegalArgumentException(
           "Key must contain at least one character.");
     }
-    // Validate the key
-    for (byte b : keyBytes) {
-      if (b == ' ' || b == '\n' || b == '\r' || b == 0) {
-        throw new IllegalArgumentException(
-            "Key contains invalid characters:  ``" + key + "''");
+    if(!binary) {
+      // Validate the key
+      for (byte b : keyBytes) {
+        if (b == ' ' || b == '\n' || b == '\r' || b == 0) {
+          throw new IllegalArgumentException(
+              "Key contains invalid characters:  ``" + key + "''");
+        }
       }
     }
   }

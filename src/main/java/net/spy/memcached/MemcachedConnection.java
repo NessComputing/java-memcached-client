@@ -47,15 +47,21 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import net.spy.memcached.compat.SpyThread;
 import net.spy.memcached.compat.log.LoggerFactory;
+import net.spy.memcached.internal.OperationFuture;
 import net.spy.memcached.ops.KeyedOperation;
+import net.spy.memcached.ops.NoopOperation;
 import net.spy.memcached.ops.Operation;
+import net.spy.memcached.ops.OperationCallback;
 import net.spy.memcached.ops.OperationException;
 import net.spy.memcached.ops.OperationState;
+import net.spy.memcached.ops.OperationStatus;
 import net.spy.memcached.ops.TapOperation;
 import net.spy.memcached.ops.VBucketAware;
+import net.spy.memcached.protocol.binary.BinaryOperationFactory;
 import net.spy.memcached.protocol.binary.TapAckOperationImpl;
 import net.spy.memcached.util.StringUtils;
 
@@ -254,7 +260,7 @@ public final class MemcachedConnection extends SpyThread {
     if (!shutDown && !reconnectQueue.isEmpty()) {
       attemptReconnects();
     }
-    // rehash operations that in retry state
+    // rehash any operations that are in retry state
     redistributeOperations(retryOps);
     retryOps.clear();
 
@@ -329,12 +335,12 @@ public final class MemcachedConnection extends SpyThread {
     return connObservers.remove(obs);
   }
 
-  private void connected(MemcachedNode qa) {
-    assert qa.getChannel().isConnected() : "Not connected.";
-    int rt = qa.getReconnectCount();
-    qa.connected();
+  private void connected(MemcachedNode node) {
+    assert node.getChannel().isConnected() : "Not connected.";
+    int rt = node.getReconnectCount();
+    node.connected();
     for (ConnectionObserver observer : connObservers) {
-      observer.connectionEstablished(qa.getSocketAddress(), rt);
+      observer.connectionEstablished(node.getSocketAddress(), rt);
     }
   }
 
@@ -345,10 +351,35 @@ public final class MemcachedConnection extends SpyThread {
     }
   }
 
-  // Handle IO for a specific selector. Any IOException will cause a
-  // reconnect
+  /**
+   * Makes sure that the given SelectionKey belongs to the current
+   * cluster.
+   *
+   * Before trying to connect to a node, make sure it actually
+   * belongs to the currently connected cluster.
+   */
+  boolean belongsToCluster(MemcachedNode node) {
+    for (MemcachedNode n : locator.getAll()) {
+      if (n.getSocketAddress().equals(node.getSocketAddress())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Handle IO for a specific selector. Any IOException will cause a
+   * reconnect.
+   *
+   * Note that this code makes sure that the corresponding node is not only
+   * able to connect, but also able to respond in a correct fashion. This is
+   * handled by issuing a dummy version/noop call and making sure it returns in
+   * a correct and timely fashion.
+   *
+   * @param sk the selector to handle IO against.
+   */
   private void handleIO(SelectionKey sk) {
-    MemcachedNode qa = (MemcachedNode) sk.attachment();
+    MemcachedNode node = (MemcachedNode) sk.attachment();
     try {
       getLogger().debug("Handling IO for:  %s (v=%b, r=%b, w=%b, c=%b, op=%s)", sk,
               sk.isValid(),
@@ -357,60 +388,100 @@ public final class MemcachedConnection extends SpyThread {
               sk.isValid() && sk.isConnectable(),
               sk.attachment());
 
-      if (sk.isValid()) {
-          if (sk.isConnectable()) {
-              getLogger().info("Connection state changed for %s", sk);
-              final SocketChannel channel = qa.getChannel();
-              if (channel.finishConnect()) {
-                  connected(qa);
-                  addedQueue.offer(qa);
-                  if (qa.getWbuf().hasRemaining()) {
-                      handleWrites(qa);
-                  }
-              } else {
-                  assert !channel.isConnected() : "connected";
+      if (sk.isConnectable() && belongsToCluster(node)) {
+        getLogger().info("Connection state changed for %s", sk);
+        final SocketChannel channel = node.getChannel();
+        if (channel.finishConnect()) {
+
+          // Test to see if it's truly alive, could be a hung process, OS
+          final CountDownLatch latch = new CountDownLatch(1);
+          final OperationFuture<Boolean> rv =
+            new OperationFuture<Boolean>("noop", latch, 2500);
+          NoopOperation testOp = opFact.noop(new OperationCallback() {
+            @Override
+			public void receivedStatus(OperationStatus status) {
+              rv.set(status.isSuccess(), status);
+            }
+
+            @Override
+            public void complete() {
+              latch.countDown();
+            }
+          });
+
+          testOp.setHandlingNode(node);
+          testOp.initialize();
+
+          checkState();
+          insertOperation(node, testOp);
+          node.copyInputQueue();
+
+          boolean done = false;
+          if(sk.isValid()) {
+            long timeout = TimeUnit.MILLISECONDS.toNanos(
+              connectionFactory.getOperationTimeout());
+            for(long stop = System.nanoTime() + timeout;
+              stop > System.nanoTime();) {
+              handleWrites(node);
+              handleReads(node);
+              if(done = (latch.getCount() == 0)) {
+                break;
               }
-          } else {
-              if (sk.isReadable()) {
-                  handleReads(qa);
-              }
-              if (sk.isWritable()) {
-                  handleWrites(qa);
-              }
+            }
           }
-      }
-      else {
-          getLogger().debug("Selection key is no longer valid!");
+
+          if (!done || testOp.isCancelled() || testOp.hasErrored()
+            || testOp.isTimedOut()) {
+            throw new ConnectException("Could not send noop upon connect! "
+              + "This may indicate a running, but not responding memcached "
+              + "instance.");
+          }
+
+          connected(node);
+          addedQueue.offer(node);
+          if (node.getWbuf().hasRemaining()) {
+            handleWrites(node);
+          }
+        } else {
+          assert !channel.isConnected() : "connected";
+        }
+      } else {
+        if (sk.isValid() && sk.isReadable()) {
+          handleReads(node);
+        }
+        if (sk.isValid() && sk.isWritable()) {
+          handleWrites(node);
+        }
       }
     } catch (ClosedChannelException e) {
       // Note, not all channel closes end up here
       if (!shutDown) {
         getLogger().warn("Closed channel and not shutting down. Queueing"
-            + " reconnect on %s", qa.getSocketAddress(), e);
-        lostConnection(qa);
+            + " reconnect on %s", node.getSocketAddress(), e);
+        lostConnection(node);
       }
     } catch (ConnectException e) {
       // Failures to establish a connection should attempt a reconnect
       // without signaling the observers.
-      getLogger().warn("Reconnecting due to failure to connect to %s", qa.getSocketAddress(), e);
-      queueReconnect(qa);
+      getLogger().warn("Reconnecting due to failure to connect to %s", node.getSocketAddress(), e);
+      queueReconnect(node);
     } catch (OperationException e) {
-      qa.setupForAuth(); // noop if !shouldAuth
+      node.setupForAuth(); // noop if !shouldAuth
       getLogger().warn("Reconnection due to exception handling a memcached "
           + "operation on %s. This may be due to an authentication failure.",
-          qa.getSocketAddress(), e);
-      lostConnection(qa);
+          node.getSocketAddress(), e);
+      lostConnection(node);
     } catch (Exception e) {
       // Any particular error processing an item should simply
       // cause us to reconnect to the server.
       //
       // One cause is just network oddness or servers
       // restarting, which lead here with IOException
-      qa.setupForAuth(); // noop if !shouldAuth
-      getLogger().warn("Reconnecting due to exception on %s", qa.getSocketAddress(), e);
-      lostConnection(qa);
+      node.setupForAuth(); // noop if !shouldAuth
+      getLogger().warn("Reconnecting due to exception on %s", node.getSocketAddress(), e);
+      lostConnection(node);
     }
-    qa.fixupOps();
+    node.fixupOps();
   }
 
   private void handleWrites(MemcachedNode qa)
@@ -504,7 +575,7 @@ public final class MemcachedConnection extends SpyThread {
     return sb.toString();
   }
 
-  private void queueReconnect(MemcachedNode qa) {
+  protected void queueReconnect(MemcachedNode qa) {
     if (!shutDown) {
       getLogger().warn("Closing, and reopening %s, attempt %d.", qa, qa.getReconnectCount());
       final SelectionKey sk = qa.getSk();
@@ -588,6 +659,11 @@ public final class MemcachedConnection extends SpyThread {
       final MemcachedNode qa = i.next();
       i.remove();
       try {
+        if(!belongsToCluster(qa)) {
+          getLogger().debug("Node does not belong to cluster anymore, "
+            + "skipping reconnect: %s", qa);
+          continue;
+        }
         if (!seen.containsKey(qa)) {
           seen.put(qa, Boolean.TRUE);
           getLogger().info("Reconnecting %s", qa.getSocketAddress());
@@ -595,6 +671,8 @@ public final class MemcachedConnection extends SpyThread {
           ch.configureBlocking(false);
           int ops = 0;
           if (ch.connect(qa.getSocketAddress())) {
+            connected(qa);
+            addedQueue.offer(qa);
             getLogger().info("Immediately reconnected to %s", qa.getSocketAddress());
             assert ch.isConnected();
           } else {
@@ -638,7 +716,7 @@ public final class MemcachedConnection extends SpyThread {
   }
 
   public void enqueueOperation(String key, Operation o) {
-    StringUtils.validateKey(key);
+    StringUtils.validateKey(key, opFact instanceof BinaryOperationFactory);
     checkState();
     addOperation(key, o);
   }
@@ -731,8 +809,9 @@ public final class MemcachedConnection extends SpyThread {
    */
   public CountDownLatch broadcastOperation(final BroadcastOpFactory of,
       Collection<MemcachedNode> nodes) {
-    final CountDownLatch latch = new CountDownLatch(locator.getAll().size());
+    final CountDownLatch latch = new CountDownLatch(nodes.size());
     for (MemcachedNode node : nodes) {
+      getLogger().debug("broadcast Operation: node = " + node);
       Operation op = of.newOp(node, latch);
       op.initialize();
       node.addOp(op);

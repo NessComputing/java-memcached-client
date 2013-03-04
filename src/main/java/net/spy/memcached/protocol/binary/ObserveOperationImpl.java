@@ -21,49 +21,49 @@
  * IN THE SOFTWARE.
  */
 
+
 package net.spy.memcached.protocol.binary;
 
-import java.util.UUID;
-
+import net.spy.memcached.ObserveResponse;
+import net.spy.memcached.ops.ObserveOperation;
 import net.spy.memcached.ops.OperationCallback;
-import net.spy.memcached.ops.OperationState;
-import net.spy.memcached.ops.TapOperation;
-import net.spy.memcached.tapmessage.RequestMessage;
-import net.spy.memcached.tapmessage.TapRequestFlag;
 
-/**
- * Implementation of a custom tap operation.
- */
-public class TapCustomOperationImpl extends TapOperationImpl implements
-    TapOperation {
-  private final String id;
-  private final RequestMessage message;
+class ObserveOperationImpl extends SingleKeyOperationImpl implements
+    ObserveOperation {
 
-  TapCustomOperationImpl(String id, RequestMessage message,
-      OperationCallback cb) {
-    super(cb);
-    this.id = id;
-    this.message = message;
+  private static final byte CMD = (byte) 0x92;
+
+  private final long cas;
+  private final int index;
+  private byte keystate = (byte)0xff;
+  private long retCas = 0;
+
+  public ObserveOperationImpl(String k, long c, int i,
+          OperationCallback cb) {
+    super(CMD, generateOpaque(), k, cb);
+    cas = c;
+    index = i;
   }
 
   @Override
   public void initialize() {
-    message.setFlags(TapRequestFlag.FIX_BYTEORDER);
-    if (id != null) {
-      message.setName(id);
-    } else {
-      message.setName(UUID.randomUUID().toString());
-    }
-    setBuffer(message.getBytes());
-  }
-
-  @Override
-  public void streamClosed(OperationState state) {
-    transitionState(state);
+    prepareBuffer("", 0x0, EMPTY_BYTES, (short) index,
+            (short) key.length(), key.getBytes());
   }
 
   @Override
   public String toString() {
-    return "Cmd: tap custom";
+    return super.toString() + " Cas: " + cas;
+  }
+
+  @Override
+  protected void decodePayload(byte[] pl) {
+    final short  keylen = (short) decodeShort(pl, 2);
+    keystate = (byte) decodeByte(pl, keylen+4);
+    retCas = (long) decodeLong(pl, keylen+5);
+    ObserveResponse r = ObserveResponse.valueOf(keystate);
+    ((ObserveOperation.Callback) getCallback()).gotData(key, retCas,
+        getHandlingNode(), r);
+    getCallback().receivedStatus(STATUS_OK);
   }
 }

@@ -21,57 +21,65 @@
  * IN THE SOFTWARE.
  */
 
-package net.spy.memcached.protocol.binary;
+package net.spy.memcached.protocol.ascii;
 
-import java.util.UUID;
+import java.nio.ByteBuffer;
+import java.util.Collection;
+import java.util.Collections;
 
+import net.spy.memcached.KeyUtil;
 import net.spy.memcached.ops.OperationCallback;
 import net.spy.memcached.ops.OperationState;
-import net.spy.memcached.ops.TapOperation;
-import net.spy.memcached.tapmessage.RequestMessage;
-import net.spy.memcached.tapmessage.TapMagic;
-import net.spy.memcached.tapmessage.TapOpcode;
-import net.spy.memcached.tapmessage.TapRequestFlag;
+import net.spy.memcached.ops.OperationStatus;
+import net.spy.memcached.ops.UnlockOperation;
 
 /**
- * Implementation of a tap backfill operation.
+ * Operation to delete an item from the cache.
  */
-public class TapBackfillOperationImpl extends TapOperationImpl implements
-    TapOperation {
-  private final String id;
-  private final long date;
+final class UnlockOperationImpl extends OperationImpl implements
+    UnlockOperation {
 
-  TapBackfillOperationImpl(String id, long date, OperationCallback cb) {
+  private static final int OVERHEAD = 32;
+
+  private static final OperationStatus UNLOCKED = new OperationStatus(true,
+      "UNLOCKED");
+  private static final OperationStatus NOT_FOUND = new OperationStatus(false,
+      "NOT_FOUND");
+
+  private static final String CMD = "unl";
+  private final String key;
+  private final long cas;
+
+  public UnlockOperationImpl(String k, long casId,
+          OperationCallback cb) {
     super(cb);
-    this.id = id;
-    this.date = date;
+    key = k;
+    cas = casId;
+  }
+
+  @Override
+  public void handleLine(String line) {
+    getLogger().debug("Unlock of %s returned %s", key, line);
+    getCallback().receivedStatus(matchStatus(line, UNLOCKED, NOT_FOUND));
+    transitionState(OperationState.COMPLETE);
   }
 
   @Override
   public void initialize() {
-    RequestMessage message = new RequestMessage();
-    message.setMagic(TapMagic.PROTOCOL_BINARY_REQ);
-    message.setOpcode(TapOpcode.REQUEST);
-    message.setFlags(TapRequestFlag.BACKFILL);
-    message.setFlags(TapRequestFlag.SUPPORT_ACK);
-    message.setFlags(TapRequestFlag.FIX_BYTEORDER);
-    if (id != null) {
-      message.setName(id);
-    } else {
-      message.setName(UUID.randomUUID().toString());
-    }
-
-    message.setBackfill(date);
-    setBuffer(message.getBytes());
+    ByteBuffer b = ByteBuffer.allocate(KeyUtil.getKeyBytes(key).length
+        + OVERHEAD);
+    setArguments(b, CMD, key, cas);
+    b.flip();
+    setBuffer(b);
   }
 
   @Override
-  public void streamClosed(OperationState state) {
-    transitionState(state);
+  public Collection<String> getKeys() {
+    return Collections.singleton(key);
   }
 
   @Override
   public String toString() {
-    return "Cmd: tap dump Flags: backfill,ack";
+    return "Cmd: " + CMD + " Key: " + key + " Cas Value: " + cas;
   }
 }

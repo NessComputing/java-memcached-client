@@ -1,6 +1,5 @@
 /**
  * Copyright (C) 2006-2009 Dustin Sallings
- * Copyright (C) 2009-2012 Couchbase, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -21,49 +20,36 @@
  * IN THE SOFTWARE.
  */
 
-package net.spy.memcached.protocol.binary;
-
-import java.util.UUID;
-
-import net.spy.memcached.ops.OperationCallback;
-import net.spy.memcached.ops.OperationState;
-import net.spy.memcached.ops.TapOperation;
-import net.spy.memcached.tapmessage.RequestMessage;
-import net.spy.memcached.tapmessage.TapRequestFlag;
+package net.spy.memcached;
 
 /**
- * Implementation of a custom tap operation.
+ * ReplicateTo codes for a Observe operation.
  */
-public class TapCustomOperationImpl extends TapOperationImpl implements
-    TapOperation {
-  private final String id;
-  private final RequestMessage message;
+public enum ReplicateTo {
+  /**
+   * Replicate to at least zero nodes.
+   */
+  ZERO(0),
+  /**
+   * Replicate to at least one node.
+   */
+  ONE(1),
+  /**
+   * Replicate to at least two nodes.
+   */
+  TWO(2),
+  /**
+   * Replicate to at least three nodes.
+   */
+  THREE(3);
 
-  TapCustomOperationImpl(String id, RequestMessage message,
-      OperationCallback cb) {
-    super(cb);
-    this.id = id;
-    this.message = message;
+  private final int value;
+
+  ReplicateTo(int val) {
+    value = val;
   }
 
-  @Override
-  public void initialize() {
-    message.setFlags(TapRequestFlag.FIX_BYTEORDER);
-    if (id != null) {
-      message.setName(id);
-    } else {
-      message.setName(UUID.randomUUID().toString());
-    }
-    setBuffer(message.getBytes());
-  }
-
-  @Override
-  public void streamClosed(OperationState state) {
-    transitionState(state);
-  }
-
-  @Override
-  public String toString() {
-    return "Cmd: tap custom";
+  public int getValue() {
+    return value;
   }
 }

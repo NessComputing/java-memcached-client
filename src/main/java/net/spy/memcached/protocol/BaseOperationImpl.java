@@ -1,6 +1,6 @@
 /**
  * Copyright (C) 2006-2009 Dustin Sallings
- * Copyright (C) 2009-2011 Couchbase, Inc.
+ * Copyright (C) 2009-2012 Couchbase, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -51,13 +51,13 @@ public abstract class BaseOperationImpl extends SpyObject implements Operation {
       new CancelledOperationStatus();
   public static final OperationStatus TIMED_OUT=
       new TimedOutOperationStatus();
-  private OperationState state = OperationState.WRITE_QUEUED;
+  private volatile OperationState state = OperationState.WRITE_QUEUED;
   private ByteBuffer cmd = null;
   private boolean cancelled = false;
   private OperationException exception = null;
   protected OperationCallback callback = null;
   private volatile MemcachedNode handlingNode = null;
-  private boolean timedout;
+  private volatile boolean timedout;
   private long creationTime;
   private boolean timedOutUnsent = false;
   protected Collection<MemcachedNode> notMyVbucketNodes =
@@ -208,14 +208,10 @@ public abstract class BaseOperationImpl extends SpyObject implements Operation {
       timedout = true;
       callback.receivedStatus(TIMED_OUT);
       callback.complete();
-    } else {
+    } // else
       // timedout would be false, but we cannot allow you to untimeout an
-      // operation
-      if (timedout) {
-        throw new IllegalArgumentException("Operation has already timed out;"
-            + " ttl specified would allow it to be valid.");
-      }
-    }
+      // operation.  This can happen when the latch timeout is shorter than the
+      // default operation timeout.
     return timedout;
   }
 

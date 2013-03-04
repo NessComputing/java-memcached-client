@@ -34,6 +34,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
@@ -66,8 +67,10 @@ import net.spy.memcached.ops.OperationCallback;
 import net.spy.memcached.ops.OperationState;
 import net.spy.memcached.ops.OperationStatus;
 import net.spy.memcached.ops.StatsOperation;
+import net.spy.memcached.ops.StoreOperation;
 import net.spy.memcached.ops.StoreType;
 import net.spy.memcached.ops.TimedOutOperationStatus;
+import net.spy.memcached.protocol.binary.BinaryOperationFactory;
 import net.spy.memcached.transcoders.TranscodeService;
 import net.spy.memcached.transcoders.Transcoder;
 import net.spy.memcached.util.StringUtils;
@@ -259,11 +262,11 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
     return transcoder;
   }
 
-  CountDownLatch broadcastOp(final BroadcastOpFactory of) {
+  public CountDownLatch broadcastOp(final BroadcastOpFactory of) {
     return broadcastOp(of, mconn.getLocator().getAll(), true);
   }
 
-  CountDownLatch broadcastOp(final BroadcastOpFactory of,
+  public CountDownLatch broadcastOp(final BroadcastOpFactory of,
       Collection<MemcachedNode> nodes) {
     return broadcastOp(of, nodes, true);
   }
@@ -283,9 +286,12 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
     final OperationFuture<Boolean> rv =
         new OperationFuture<Boolean>(key, latch, operationTimeout);
     Operation op = opFact.store(storeType, key, co.getFlags(), exp,
-        co.getData(), new OperationCallback() {
+        co.getData(), new StoreOperation.Callback() {
             public void receivedStatus(OperationStatus val) {
               rv.set(val.isSuccess(), val);
+            }
+            public void gotData(String key, long cas) {
+              rv.setCas(cas);
             }
 
             public void complete() {
@@ -460,8 +466,8 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
    * @throws IllegalStateException in the rare circumstance where queue is too
    *           full to accept any more requests
    */
-  public <T> Future<CASResponse> asyncCAS(String key, long casId, T value,
-      Transcoder<T> tc) {
+  public <T> OperationFuture<CASResponse>
+  asyncCAS(String key, long casId, T value, Transcoder<T> tc) {
     return asyncCAS(key, casId, 0, value, tc);
   }
 
@@ -478,14 +484,14 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
    * @throws IllegalStateException in the rare circumstance where queue is too
    *           full to accept any more requests
    */
-  public <T> Future<CASResponse> asyncCAS(String key, long casId, int exp,
-      T value, Transcoder<T> tc) {
+  public <T> OperationFuture<CASResponse>
+  asyncCAS(String key, long casId, int exp, T value, Transcoder<T> tc) {
     CachedData co = tc.encode(value);
     final CountDownLatch latch = new CountDownLatch(1);
     final OperationFuture<CASResponse> rv =
       new OperationFuture<CASResponse>(key, latch, operationTimeout);
     Operation op = opFact.cas(StoreType.set, key, casId, co.getFlags(), exp,
-        co.getData(), new OperationCallback() {
+        co.getData(), new StoreOperation.Callback() {
             public void receivedStatus(OperationStatus val) {
               if (val instanceof CASOperationStatus) {
                 rv.set(((CASOperationStatus) val).getCASResponse(), val);
@@ -497,7 +503,9 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
                 throw new RuntimeException("Unhandled state: " + val);
               }
             }
-
+            public void gotData(String key, long cas) {
+              rv.setCas(cas);
+            }
             public void complete() {
               latch.countDown();
             }
@@ -517,7 +525,8 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
    * @throws IllegalStateException in the rare circumstance where queue is too
    *           full to accept any more requests
    */
-  public Future<CASResponse> asyncCAS(String key, long casId, Object value) {
+  public OperationFuture<CASResponse>
+  asyncCAS(String key, long casId, Object value) {
     return asyncCAS(key, casId, value, transcoder);
   }
 
@@ -550,18 +559,27 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
    * @param tc the transcoder to serialize and unserialize the value
    * @return a CASResponse
    * @throws OperationTimeoutException if global operation timeout is exceeded
+   * @throws CancellationException if operation was canceled
    * @throws IllegalStateException in the rare circumstance where queue is too
    *           full to accept any more requests
    */
   public <T> CASResponse cas(String key, long casId, int exp, T value,
       Transcoder<T> tc) {
+    CASResponse casr = null;
     try {
-      return asyncCAS(key, casId, exp, value, tc).get(operationTimeout,
+      OperationFuture<CASResponse> casOp = asyncCAS(key,
+              casId, exp, value, tc);
+      casr = casOp.get(operationTimeout,
           TimeUnit.MILLISECONDS);
+      return casr;
     } catch (InterruptedException e) {
       throw new RuntimeException("Interrupted waiting for value", e);
     } catch (ExecutionException e) {
-      throw new RuntimeException("Exception waiting for value", e);
+      if(e.getCause() instanceof CancellationException) {
+        throw (CancellationException) e.getCause();
+      } else {
+        throw new RuntimeException("Exception waiting for value", e);
+      }
     } catch (TimeoutException e) {
       throw new OperationTimeoutException("Timeout waiting for value", e);
     }
@@ -910,6 +928,7 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
    * @param tc the transcoder to serialize and unserialize value
    * @return the result from the cache and CAS id (null if there is none)
    * @throws OperationTimeoutException if global operation timeout is exceeded
+   * @throws CancellationException if operation was canceled
    * @throws IllegalStateException in the rare circumstance where queue is too
    *           full to accept any more requests
    */
@@ -919,7 +938,11 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
     } catch (InterruptedException e) {
       throw new RuntimeException("Interrupted waiting for value", e);
     } catch (ExecutionException e) {
-      throw new RuntimeException("Exception waiting for value", e);
+      if(e.getCause() instanceof CancellationException) {
+        throw (CancellationException) e.getCause();
+      } else {
+        throw new RuntimeException("Exception waiting for value", e);
+      }
     } catch (TimeoutException e) {
       throw new OperationTimeoutException("Timeout waiting for value", e);
     }
@@ -935,6 +958,7 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
    * @return the result from the cache (null if there is none)
    * @throws OperationTimeoutException if the global operation timeout is
    *           exceeded
+   * @throws CancellationException if operation was canceled
    * @throws IllegalStateException in the rare circumstance where queue is too
    *           full to accept any more requests
    */
@@ -945,7 +969,11 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
     } catch (InterruptedException e) {
       throw new RuntimeException("Interrupted waiting for value", e);
     } catch (ExecutionException e) {
-      throw new RuntimeException("Exception waiting for value", e);
+      if(e.getCause() instanceof CancellationException) {
+        throw (CancellationException) e.getCause();
+      } else {
+        throw new RuntimeException("Exception waiting for value", e);
+      }
     } catch (TimeoutException e) {
       throw new OperationTimeoutException("Timeout waiting for value", e);
     }
@@ -989,6 +1017,7 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
    * @return the result from the cache (null if there is none)
    * @throws OperationTimeoutException if the global operation timeout is
    *           exceeded
+   * @throws CancellationException if operation was canceled
    * @throws IllegalStateException in the rare circumstance where queue is too
    *           full to accept any more requests
    */
@@ -998,7 +1027,11 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
     } catch (InterruptedException e) {
       throw new RuntimeException("Interrupted waiting for value", e);
     } catch (ExecutionException e) {
-      throw new RuntimeException("Exception waiting for value", e);
+      if(e.getCause() instanceof CancellationException) {
+        throw (CancellationException) e.getCause();
+      } else {
+        throw new RuntimeException("Exception waiting for value", e);
+      }
     } catch (TimeoutException e) {
       throw new OperationTimeoutException("Timeout waiting for value", e);
     }
@@ -1050,7 +1083,7 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
     while (keyIter.hasNext() && tcIter.hasNext()) {
       String key = keyIter.next();
       tcMap.put(key, tcIter.next());
-      StringUtils.validateKey(key);
+      StringUtils.validateKey(key, opFact instanceof BinaryOperationFactory);
       final MemcachedNode primaryNode = locator.getPrimary(key);
       MemcachedNode node = null;
       if (primaryNode.isActive()) {
@@ -1282,6 +1315,7 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
    * @return a map of the values (for each value that exists)
    * @throws OperationTimeoutException if the global operation timeout is
    *           exceeded
+   * @throws CancellationException if operation was canceled
    * @throws IllegalStateException in the rare circumstance where queue is too
    *           full to accept any more requests
    */
@@ -1293,9 +1327,13 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
     } catch (InterruptedException e) {
       throw new RuntimeException("Interrupted getting bulk values", e);
     } catch (ExecutionException e) {
-      throw new RuntimeException("Failed getting bulk values", e);
+      if(e.getCause() instanceof CancellationException) {
+        throw (CancellationException) e.getCause();
+      } else {
+        throw new RuntimeException("Exception waiting for bulk values", e);
+      }
     } catch (TimeoutException e) {
-      throw new OperationTimeoutException("Timeout waiting for bulkvalues", e);
+      throw new OperationTimeoutException("Timeout waiting for bulk values", e);
     }
   }
 
@@ -1669,7 +1707,11 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
       } catch (InterruptedException e) {
         throw new RuntimeException("Interrupted waiting for store", e);
       } catch (ExecutionException e) {
-        throw new RuntimeException("Failed waiting for store", e);
+        if(e.getCause() instanceof CancellationException) {
+          throw (CancellationException) e.getCause();
+        } else {
+          throw new RuntimeException("Failed waiting for store", e);
+        }
       } catch (TimeoutException e) {
         throw new OperationTimeoutException("Timeout waiting to mutate or init"
             + " value", e);
@@ -1850,9 +1892,13 @@ public class MemcachedClient extends SpyObject implements MemcachedClientIF,
     final CountDownLatch latch = new CountDownLatch(1);
     final OperationFuture<Boolean> rv = new OperationFuture<Boolean>(key,
         latch, operationTimeout);
-    DeleteOperation op = opFact.delete(key, new OperationCallback() {
+    DeleteOperation op = opFact.delete(key, new DeleteOperation.Callback() {
       public void receivedStatus(OperationStatus s) {
         rv.set(s.isSuccess(), s);
+      }
+
+      public void gotData(long cas) {
+        rv.setCas(cas);
       }
 
       public void complete() {

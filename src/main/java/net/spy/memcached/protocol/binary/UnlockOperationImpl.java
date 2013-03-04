@@ -21,57 +21,38 @@
  * IN THE SOFTWARE.
  */
 
+
 package net.spy.memcached.protocol.binary;
 
-import java.util.UUID;
-
 import net.spy.memcached.ops.OperationCallback;
-import net.spy.memcached.ops.OperationState;
-import net.spy.memcached.ops.TapOperation;
-import net.spy.memcached.tapmessage.RequestMessage;
-import net.spy.memcached.tapmessage.TapMagic;
-import net.spy.memcached.tapmessage.TapOpcode;
-import net.spy.memcached.tapmessage.TapRequestFlag;
+import net.spy.memcached.ops.UnlockOperation;
 
-/**
- * Implementation of a tap backfill operation.
- */
-public class TapBackfillOperationImpl extends TapOperationImpl implements
-    TapOperation {
-  private final String id;
-  private final long date;
 
-  TapBackfillOperationImpl(String id, long date, OperationCallback cb) {
-    super(cb);
-    this.id = id;
-    this.date = date;
+class UnlockOperationImpl extends SingleKeyOperationImpl implements
+    UnlockOperation {
+
+  private static final byte CMD = (byte) 0x95;
+
+  private final long cas;
+
+  public UnlockOperationImpl(String k, long c,
+          OperationCallback cb) {
+    super(CMD, generateOpaque(), k, cb);
+    cas = c;
   }
 
   @Override
   public void initialize() {
-    RequestMessage message = new RequestMessage();
-    message.setMagic(TapMagic.PROTOCOL_BINARY_REQ);
-    message.setOpcode(TapOpcode.REQUEST);
-    message.setFlags(TapRequestFlag.BACKFILL);
-    message.setFlags(TapRequestFlag.SUPPORT_ACK);
-    message.setFlags(TapRequestFlag.FIX_BYTEORDER);
-    if (id != null) {
-      message.setName(id);
-    } else {
-      message.setName(UUID.randomUUID().toString());
-    }
-
-    message.setBackfill(date);
-    setBuffer(message.getBytes());
+    prepareBuffer(key, cas, EMPTY_BYTES);
   }
 
   @Override
-  public void streamClosed(OperationState state) {
-    transitionState(state);
+  protected void decodePayload(byte[] pl) {
+    getCallback().receivedStatus(STATUS_OK);
   }
 
   @Override
   public String toString() {
-    return "Cmd: tap dump Flags: backfill,ack";
+    return super.toString() + " Cas: " + cas;
   }
 }

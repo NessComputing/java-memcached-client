@@ -1,5 +1,4 @@
 /**
- * Copyright (C) 2006-2009 Dustin Sallings
  * Copyright (C) 2009-2012 Couchbase, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -21,49 +20,33 @@
  * IN THE SOFTWARE.
  */
 
-package net.spy.memcached.protocol.binary;
+package net.spy.memcached.util;
 
-import java.util.UUID;
+import java.util.Collection;
+import java.util.LinkedList;
 
-import net.spy.memcached.ops.OperationCallback;
-import net.spy.memcached.ops.OperationState;
-import net.spy.memcached.ops.TapOperation;
-import net.spy.memcached.tapmessage.RequestMessage;
-import net.spy.memcached.tapmessage.TapRequestFlag;
+import junit.framework.TestCase;
+
+import org.junit.Test;
 
 /**
- * Implementation of a custom tap operation.
+ * Test various classes in the net.spy.memcached.util package.
  */
-public class TapCustomOperationImpl extends TapOperationImpl implements
-    TapOperation {
-  private final String id;
-  private final RequestMessage message;
-
-  TapCustomOperationImpl(String id, RequestMessage message,
-      OperationCallback cb) {
-    super(cb);
-    this.id = id;
-    this.message = message;
+public class UtilTest extends TestCase {
+  public void setup() {
+    // Empty
   }
 
-  @Override
-  public void initialize() {
-    message.setFlags(TapRequestFlag.FIX_BYTEORDER);
-    if (id != null) {
-      message.setName(id);
-    } else {
-      message.setName(UUID.randomUUID().toString());
-    }
-    setBuffer(message.getBytes());
+  public void teardown() {
+    // Empty
   }
 
-  @Override
-  public void streamClosed(OperationState state) {
-    transitionState(state);
-  }
-
-  @Override
-  public String toString() {
-    return "Cmd: tap custom";
+  @Test
+  public void testJoin() {
+    Collection<String> keys = new LinkedList<String>();
+    keys.add("key1");
+    keys.add("key2");
+    keys.add("key3");
+    assertEquals("key1,key2,key3", StringUtils.join(keys, ","));
   }
 }

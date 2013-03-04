@@ -1,6 +1,6 @@
 /**
  * Copyright (C) 2006-2009 Dustin Sallings
- * Copyright (C) 2009-2011 Couchbase, Inc.
+ * Copyright (C) 2009-2012 Couchbase, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -44,16 +44,18 @@ import net.spy.memcached.ops.MultiGetOperationCallback;
 import net.spy.memcached.ops.Mutator;
 import net.spy.memcached.ops.MutatorOperation;
 import net.spy.memcached.ops.NoopOperation;
+import net.spy.memcached.ops.ObserveOperation;
 import net.spy.memcached.ops.Operation;
 import net.spy.memcached.ops.OperationCallback;
-
 import net.spy.memcached.ops.SASLAuthOperation;
 import net.spy.memcached.ops.SASLMechsOperation;
 import net.spy.memcached.ops.SASLStepOperation;
 import net.spy.memcached.ops.StatsOperation;
+import net.spy.memcached.ops.StatsOperation.Callback;
 import net.spy.memcached.ops.StoreOperation;
 import net.spy.memcached.ops.StoreType;
 import net.spy.memcached.ops.TapOperation;
+import net.spy.memcached.ops.UnlockOperation;
 import net.spy.memcached.ops.VersionOperation;
 import net.spy.memcached.tapmessage.RequestMessage;
 import net.spy.memcached.tapmessage.TapOpcode;
@@ -63,7 +65,7 @@ import net.spy.memcached.tapmessage.TapOpcode;
  */
 public class AsciiOperationFactory extends BaseOperationFactory {
 
-  public DeleteOperation delete(String key, OperationCallback cb) {
+  public DeleteOperation delete(String key, DeleteOperation.Callback cb) {
     return new DeleteOperationImpl(key, cb);
   }
 
@@ -89,8 +91,24 @@ public class AsciiOperationFactory extends BaseOperationFactory {
     return new GetlOperationImpl(key, exp, cb);
   }
 
+  public ObserveOperation observe(String key, long casId, int index,
+      ObserveOperation.Callback cb) {
+    throw new UnsupportedOperationException("Observe is not supported "
+        + "for ASCII protocol");
+  }
+
+  public UnlockOperation unlock(String key, long casId,
+          OperationCallback cb) {
+    return new UnlockOperationImpl(key, casId, cb);
+  }
+
   public GetsOperation gets(String key, GetsOperation.Callback cb) {
     return new GetsOperationImpl(key, cb);
+  }
+
+  public StatsOperation keyStats(String key, Callback cb) {
+    throw new UnsupportedOperationException("Key stats are not supported "
+        + "for ASCII protocol");
   }
 
   public MutatorOperation mutate(Mutator m, String key, long by, long exp,
@@ -103,7 +121,7 @@ public class AsciiOperationFactory extends BaseOperationFactory {
   }
 
   public StoreOperation store(StoreType storeType, String key, int flags,
-      int exp, byte[] data, OperationCallback cb) {
+      int exp, byte[] data, StoreOperation.Callback cb) {
     return new StoreOperationImpl(storeType, key, flags, exp, data, cb);
   }
 
@@ -122,7 +140,7 @@ public class AsciiOperationFactory extends BaseOperationFactory {
   }
 
   public CASOperation cas(StoreType type, String key, long casId, int flags,
-      int exp, byte[] data, OperationCallback cb) {
+      int exp, byte[] data, StoreOperation.Callback cb) {
     return new CASOperationImpl(key, casId, flags, exp, data, cb);
   }
 

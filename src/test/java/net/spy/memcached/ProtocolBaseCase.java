@@ -101,22 +101,6 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
     assertTrue(Integer.parseInt(noItemsSmall) >= 1);
   }
 
-  public void testGetStatsCacheDump() throws Exception {
-    if (isMoxi()) {
-      return;
-    }
-    // There needs to at least have been one value set or there
-    // won't be anything to dump
-    client.set("dumpinitializer", 0, "hi");
-    Map<SocketAddress, Map<String, String>> stats =
-        client.getStats("cachedump 1 10000");
-    System.out.println("Stats cachedump:  " + stats);
-    assertEquals(1, stats.size());
-    Map<String, String> oneStat = stats.values().iterator().next();
-    String val = oneStat.get("dumpinitializer");
-    assertTrue(val + "doesn't match", val.matches("\\[2 b; \\d+ s\\]"));
-  }
-
   public void testDelayedFlush() throws Exception {
     assertNull(client.get("test1"));
     assert client.set("test1", 5, "test1value").getStatus().isSuccess();
@@ -194,7 +178,7 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
     assertEquals("test1value", client.get(key));
   }
 
-  public void testInvalidKey1() throws Exception {
+  public void testKeyWithSpaces() throws Exception {
     try {
       client.get("key with spaces");
       fail("Expected IllegalArgumentException getting key with spaces");
@@ -203,7 +187,7 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
     }
   }
 
-  public void testInvalidKey2() throws Exception {
+  public void testKeyLongerThan250() throws Exception {
     try {
       StringBuilder longKey = new StringBuilder();
       for (int i = 0; i < 251; i++) {
@@ -216,7 +200,7 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
     }
   }
 
-  public void testInvalidKey3() throws Exception {
+  public void testKeyWithNewline() throws Exception {
     try {
       Object val = client.get("Key\n");
       fail("Expected IllegalArgumentException, got " + val);
@@ -225,7 +209,7 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
     }
   }
 
-  public void testInvalidKey4() throws Exception {
+  public void testKeyWithReturn() throws Exception {
     try {
       Object val = client.get("Key\r");
       fail("Expected IllegalArgumentException, got " + val);
@@ -234,7 +218,7 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
     }
   }
 
-  public void testInvalidKey5() throws Exception {
+  public void testKeyWithASCIINull() throws Exception {
     try {
       Object val = client.get("Key\0");
       fail("Expected IllegalArgumentException, got " + val);
@@ -252,7 +236,7 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
     }
   }
 
-  public void testInvalidKeyBulk() throws Exception {
+  public void testGetBulkKeyWSpaces() throws Exception {
     try {
       Object val = client.getBulk("Key key2");
       fail("Expected IllegalArgumentException, got " + val);
@@ -263,7 +247,8 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
 
   public void testParallelSetGet() throws Throwable {
     int cnt = SyncThread.getDistinctResultCount(10, new Callable<Boolean>() {
-      public Boolean call() throws Exception {
+      @Override
+	public Boolean call() throws Exception {
         for (int i = 0; i < 10; i++) {
           assert client.set("test" + i, 5, "value" + i).getStatus().isSuccess();
           assertEquals("value" + i, client.get("test" + i));
@@ -279,7 +264,8 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
 
   public void testParallelSetMultiGet() throws Throwable {
     int cnt = SyncThread.getDistinctResultCount(10, new Callable<Boolean>() {
-      public Boolean call() throws Exception {
+      @Override
+	public Boolean call() throws Exception {
         for (int i = 0; i < 10; i++) {
           assert client.set("test" + i, 5, "value" + i).getStatus().isSuccess();
           assertEquals("value" + i, client.get("test" + i));
@@ -299,7 +285,8 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
 
   public void testParallelSetAutoMultiGet() throws Throwable {
     int cnt = SyncThread.getDistinctResultCount(10, new Callable<Boolean>() {
-      public Boolean call() throws Exception {
+      @Override
+	public Boolean call() throws Exception {
         assert client.set("testparallel", 5, "parallelvalue").getStatus()
             .isSuccess();
         for (int i = 0; i < 10; i++) {
@@ -501,7 +488,8 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
         stringify(client.getAvailableServers()));
   }
 
-  public void testUnavailableServers() {
+  public void testUnavailableServers() throws Exception {
+	Thread.sleep(10);
     client.getVersions();
     assertEquals(Collections.emptyList(), client.getUnavailableServers());
   }
@@ -568,7 +556,8 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
 
   public void testConcurrentMutation() throws Throwable {
     int num = SyncThread.getDistinctResultCount(10, new Callable<Long>() {
-      public Long call() throws Exception {
+      @Override
+	public Long call() throws Exception {
         return client.incr("mtest", 1, 11);
       }
     });
@@ -899,24 +888,36 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
     assertNull(client.get(key));
   }
 
+  public void testSetReturnsCAS() throws Exception {
+
+    OperationFuture<Boolean> setOp = client.set("testSetReturnsCAS",
+            0, "testSetReturnsCAS");
+    setOp.get();
+    assertTrue(setOp.getCas() > 0);
+  }
+
   private static class TestTranscoder implements Transcoder<String> {
     private static final int FLAGS = 238885206;
 
-    public String decode(CachedData d) {
+    @Override
+	public String decode(CachedData d) {
       assert d.getFlags() == FLAGS : "expected " + FLAGS + " got "
           + d.getFlags();
       return new String(d.getData());
     }
 
-    public CachedData encode(String o) {
+    @Override
+	public CachedData encode(String o) {
       return new CachedData(FLAGS, o.getBytes(), getMaxSize());
     }
 
-    public int getMaxSize() {
+    @Override
+	public int getMaxSize() {
       return CachedData.MAX_SIZE;
     }
 
-    public boolean asyncDecode(CachedData d) {
+    @Override
+	public boolean asyncDecode(CachedData d) {
       return false;
     }
   }
@@ -930,7 +931,8 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
       key = k;
     }
 
-    public String decode(CachedData d) {
+    @Override
+	public String decode(CachedData d) {
       assert d.getFlags() == FLAGS : "expected " + FLAGS + " got "
           + d.getFlags();
 
@@ -950,7 +952,8 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
       return new String(valueBytes);
     }
 
-    public CachedData encode(String o) {
+    @Override
+	public CachedData encode(String o) {
       byte[] keyBytes = key.getBytes();
       byte[] valueBytes = o.getBytes();
       int length = 4 + keyBytes.length + 4 + valueBytes.length;
@@ -963,11 +966,13 @@ public abstract class ProtocolBaseCase extends ClientBaseCase {
       return new CachedData(FLAGS, bytes, getMaxSize());
     }
 
-    public int getMaxSize() {
+    @Override
+	public int getMaxSize() {
       return CachedData.MAX_SIZE;
     }
 
-    public boolean asyncDecode(CachedData d) {
+    @Override
+	public boolean asyncDecode(CachedData d) {
       return false;
     }
   }

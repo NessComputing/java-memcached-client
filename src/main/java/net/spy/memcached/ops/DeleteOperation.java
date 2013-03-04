@@ -26,5 +26,15 @@ package net.spy.memcached.ops;
  * Deletion operation.
  */
 public interface DeleteOperation extends KeyedOperation {
-  // nothing in particular.
+  /**
+   * Delete operation callback.
+   */
+  interface Callback extends OperationCallback {
+    /**
+     * Callback for each result from a Store.
+     *
+     * @param cas the CAS value for this record
+     */
+    void gotData(long cas);
+  }
 }

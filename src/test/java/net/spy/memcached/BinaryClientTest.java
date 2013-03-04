@@ -24,6 +24,9 @@
 package net.spy.memcached;
 
 import java.net.InetSocketAddress;
+import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import net.spy.memcached.internal.OperationFuture;
 
 /**
  * This test assumes a binary server is running on the host specified int the
@@ -50,12 +53,6 @@ public class BinaryClientTest extends ProtocolBaseCase {
   protected String getExpectedVersionSource() {
     return String.valueOf(new InetSocketAddress(TestConfig.IPV4_ADDR,
         TestConfig.PORT_NUMBER));
-  }
-
-  @Override
-  public void testGetStatsCacheDump() throws Exception {
-    // XXX: Cachedump isn't returning anything from the server in binprot
-    assertTrue(true);
   }
 
   public void testCASAppendFail() throws Exception {
@@ -88,6 +85,59 @@ public class BinaryClientTest extends ProtocolBaseCase {
     CASValue<Object> casv = client.gets(key);
     assertTrue(client.prepend(casv.getCas(), key, "es").get());
     assertEquals("estest", client.get(key));
+  }
+
+  public void testAsyncCASResponse() {
+    String key = "testAsyncCASResponse";
+    client.set(key, 300, key + "0");
+    CASValue<Object> getsRes = client.gets(key);
+    OperationFuture<CASResponse> casRes = client.asyncCAS(key, getsRes.getCas(),
+      key + "1");
+    try {
+      casRes.get();
+      assertNotNull("OperationFuture is missing cas value.", casRes.getCas());
+    } catch (InterruptedException ex) {
+      fail("Interrupted while getting CASResponse");
+    } catch (ExecutionException ex) {
+      fail("Execution problem while getting CASResponse");
+    }
+    assertNotNull(casRes.getCas());
+  }
+
+  @Override
+  public void testKeyWithSpaces() throws Exception {
+    String key = "key with spaces";
+    client.set(key, 0, "");
+    assertNotNull("Couldn't get the key with spaces in it.", client.get(key));
+  }
+
+  @Override
+  public void testKeyWithNewline() throws Exception {
+    String key = "Key\n";
+    client.set(key, 0, "");
+    assertNotNull(client.get(key));
+  }
+
+  @Override
+  public void testKeyWithReturn() throws Exception {
+    String key = "Key\r";
+    client.set(key, 0, "");
+    assertNotNull(client.get(key));
+  }
+
+  @Override
+  public void testKeyWithASCIINull() throws Exception {
+    String key = "Key\0";
+    client.set(key, 0, "");
+    assertNotNull(client.get(key));
+  }
+
+  @Override
+  public void testGetBulkKeyWSpaces() throws Exception {
+    String key = "Key key2";
+    client.set(key, 0, "");
+    Map<String, Object> bulkReturn = client.getBulk(key);
+    assertTrue(bulkReturn.size() >= 1);
   }
 
   @Override
