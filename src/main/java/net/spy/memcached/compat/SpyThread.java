@@ -30,7 +30,7 @@ import net.spy.memcached.compat.log.LoggerFactory;
  */
 public class SpyThread extends Thread {
 
-  private transient Logger logger = null;
+  private transient Logger logger = null; // NOPMD
 
   // Thread has *eight* constructors. Damnit.
 

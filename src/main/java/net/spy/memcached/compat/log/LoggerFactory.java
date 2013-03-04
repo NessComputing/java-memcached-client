@@ -40,9 +40,10 @@ import java.util.concurrent.ConcurrentMap;
  *
  * @see AbstractLogger
  */
+@SuppressWarnings("PMD.MoreThanOneLogger")
 public final class LoggerFactory extends Object {
 
-  private static LoggerFactory instance = new LoggerFactory();
+  private static final LoggerFactory instance = new LoggerFactory();
 
   private final ConcurrentMap<String, Logger> instances;
 

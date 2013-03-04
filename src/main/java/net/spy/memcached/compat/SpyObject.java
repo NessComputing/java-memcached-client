@@ -30,7 +30,7 @@ import net.spy.memcached.compat.log.LoggerFactory;
  */
 public class SpyObject extends Object {
 
-  private transient Logger logger = null;
+  private transient Logger logger = null; // NOPMD
 
   /**
    * Get an instance of SpyObject.
