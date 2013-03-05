@@ -8,9 +8,9 @@
   </parent>
 
   <scm>
-    <connection>scm:git:git://github.com/hgschmie/java-memcached-client.git</connection>
-    <developerConnection>scm:git:git@github.com:hgschmie/java-memcached-client.git</developerConnection>
-    <url>https://github.com/hgschmie/java-memcached-client</url>
+    <connection>scm:git:git://github.com/NessComputing/java-memcached-client.git</connection>
+    <developerConnection>scm:git:git@github.com:NessComputing/java-memcached-client.git</developerConnection>
+    <url>https://github.com/NessComputing/java-memcached-client</url>
   </scm>
 
   <groupId>spymemcached</groupId>
